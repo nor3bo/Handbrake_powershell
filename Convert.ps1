@@ -54,6 +54,12 @@ function Speak	{
 	$voice.speak($phrase) | Out-Null
 } # end function Speak
 
+function Get-TimeStamp {
+    # Returns a sortable timestamp string
+    return (Get-Date -Format "yyyy-MM-dd HH:mm:ss")
+}
+
+
 ####################################################
 # Determine if Handbrake is installed and where it is
 $handbrakeclipath = (Get-ItemProperty -path "HKLM:\SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\Handbrake.exe" -erroraction silentlycontinue).'(Default)' -replace '.exe','cli.exe'
@@ -86,14 +92,14 @@ Set-Location $dir
 ####################################################
 # Main 
 ####################################################
-$files = (Get-ChildItem "$dir\*" -include *.avi,*.mkv,*.ogm,*.wmv, *.mp4 -Recurse)
+$files = (Get-ChildItem "$dir\*" -include *.avi,*.mkv,*.ogm,*.wmv, *.mp4 -Recurse | Sort-Object Name)
 $runningDir = $PSScriptRoot
-$timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+# $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 
 if ($preset -eq $null -or $preset -eq "default" -or $preset.length -lt 3) {
 	$preset = "_1080p_AV1"
 	Write-Host "Using default preset: `"_1080p_AV1`"" -foreground yellow
-	Write-Output "$timestamp Using default preset: `"_1080p_AV1`"" >> $PSScriptRoot +"\log_1080p_AV1.txt"
+	Write-Output "$(Get-TimeStamp) Using default preset: `"_1080p_AV1`"" >> $PSScriptRoot +"\log_1080p_AV1.txt"
 }
 
 $presetFile = $PSScriptRoot + "\presets.json"
@@ -101,104 +107,129 @@ $logfile = $PSScriptRoot +"\log"+$preset+".txt"
 $errorfile = $PSScriptRoot +"\error"+$preset+".txt"
 
 
-Write-Output "`n$timestamp*******************************************************************************" >> $logfile
-Write-Output "$timestamp Starting New Video File Conversion Run" >> $logfile
-Write-Output "$timestamp Process Directory: $dir" >> $logfile
-Write-Output "$timestamp*******************************************************************************"  >> $logfile
+Write-Output "`n$(Get-TimeStamp) *******************************************************************************" >> $logfile
+Write-Output "$(Get-TimeStamp) Starting New Video File Conversion Run" >> $logfile
+Write-Output "$(Get-TimeStamp) Process Directory: $dir" >> $logfile
+Write-Output "$(Get-TimeStamp) Preset: $preset" >> $logfile
+Write-Output "$(Get-TimeStamp) Use STOP TRIGGER to end run: `"stop.y`" " >> $logfile
+Write-Output "$(Get-TimeStamp) *******************************************************************************"  >> $logfile
 
 if ($files.length -ge 1){
-	ForEach ($file in $files){
-		[string] $fileName = $file.name
-		[string] $justName = $file.name.substring(0,$file.name.length-4)
-		[string] $dupName = $file.name.substring(0,$file.name.length-($preset.length+4)) + $preset + ".mp4"
-		[string] $outFile = $file.FullName.substring(0,$file.FullName.length-4) + $preset + ".mp4"
-		[string] $outFileName = $justName + $preset + ".mp4"
-		
-		[string] $av1Name = $file.name.substring(0,$file.name.length-7) + "AV1.mp4"
+	
+	try{
+		ForEach ($file in $files){
+			
+			#Manual stop check (like your stop.y)
+			if (Test-Path "$runningDir/stop.y") {
+				Write-Host "Stop trigger detected." -foreground yellow
+			    Write-Output "$(Get-TimeStamp) WARNING: Stop trigger detected." >> $logfile
 
-		
-		Write-Host "`n*******************************************************************************"
-		Write-Host "Processing:  $file" -foreground green
-		Write-Host "*******************************************************************************"
-
-		$timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-		Write-Output "`n$timestamp *******************************************************************************" >> $logfile
-		Write-Output "$timestamp Processing:  $file" >> $logfile
-		Write-Output "$timestamp*******************************************************************************"  >> $logfile
-
-		if (Test-Path $outFile){
-			Write-Host "Output file already exist!!!" -ForegroundColor Red
-			Write-Output "$timestamp Output file already exist!!!" >> $logfile
-			continue
-		}
-
-		if (($skipAV1 -eq "Y") -and ("$fileName" -eq "$av1Name")){
-			Write-Host "Input file is already AV1 and SKIP option was chosen!!!" -ForegroundColor Red
-			Write-Output "$timestamp Input file is already AV1 and SKIP option was chosen!!!" >> $logfile
-			continue
-		}
-
-		if ("$fileName" -eq "$dupName"){
-			Write-Host "Input file is same as destination file!!!" -ForegroundColor Red
-			Write-Output "$timestamp Input file is same as destination file!!!" >> $logfile
-			continue
-		}
-
-		Write-Host "Output File: $outFile" -foreground green
-		Write-Output "$timestamp Output File: $outFile" >> $logfile
-
-
-		#Invoking Handbrake for file transcoding
-		[string] $handbrake = $handbrakeclishortpath + " -i `"$file`" -o `"$outFile`" --preset-import-file `"$presetFile`" -Z `"$preset`""
-		
-		Invoke-Expression $handbrake
-		$timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-		
-		#Compare file sizes
-		$fileSize = (Get-Item $file).Length / 1MB
-		$outFileSize = (Get-Item $outFile).Length / 1MB
-		Write-Host "$fileSize -> $file" -foreground green
-		Write-Host "$outFileSize -> $outFile" -foreground green
-		Write-Output "$timestamp input  $fileSize -> $file"  >> $logfile
-		Write-Output "$timestamp output $outFileSize -> $outFile"  >> $logfile
-
-		if ($outFileSize -lt $fileSize) {
-			$timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-			Write-Host "Successful conversion" -foreground green
-			Write-Host "$file" -foreground green
-			Write-Output "$timestamp SUCCESS +++" >> $logfile
-			Write-Output "$timestamp -> $outFile" >> $logfile
-			if ($outFileSize -gt $fileSize/4) {
-				Remove-Item $file
-			}else{
-				Write-Output "$timestamp WARNING: less than 20% of original" >> $logfile
-				Write-Output "$timestamp WARNING: -> $outFile" >> $logfile
-				Write-Output "$timestamp WARNING: -> Moving original to: $PSScriptRoot\$fileName"  >> $logfile
-				Write-Output "$timestamp WARNING: less than 20% of original" >> $errorfile
-				Write-Output "$timestamp WARNING: -> input  $fileSize -> $file"  >> $errorfile
-				Write-Output "$timestamp WARNING: -> output $outFileSize -> $outFile"  >> $errorfile
-				Write-Output "$timestamp WARNING: -> $outFile" >> $errorfile
-				Write-Output "$timestamp WARNING: -> Moving original to: $PSScriptRoot\$fileName"  >> $errorfile
-				Move-Item -Path $file -Destination $PSScriptRoot\$fileName
+				Rename-Item -Path "$runningDir/stop.y"  -NewName "$runningDir/stop.n" -Force
+				break
 			}
-		}else{
-			$timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-			Write-Host "Conversion Failed" -foreground red
-			Write-Host "$file" -foreground red
-				Write-Output "$timestamp ERROR: filesize greater than original or incomplete" >> $logfile
-				Write-Output "$timestamp ERROR: -> $outFile" >> $logfile
-				Write-Output "$timestamp ERROR: -> Moving converted file to: $PSScriptRoot\$fileName"  >> $logfile
-				Write-Output "$timestamp ERROR: filesize greater than original or incomplete" >> $errorfile
-				Write-Output "$timestamp ERROR: -> input  $fileSize -> $file"  >> $errorfile
-				Write-Output "$timestamp ERROR: -> output $outFileSize -> $outFile"  >> $errorfile
-				Write-Output "$timestamp ERROR: -> $outFile" >> $errorfile
-				Write-Output "$timestamp ERROR: -> Moving converted file to: $PSScriptRoot\$outFileName"  >> $errorfile
-				Move-Item -Path $outFile -Destination $PSScriptRoot\$outFileName
-		}
-		
-		Write-Output "$timestamp *******************************************************************************" >> $logfile
+			
+			[string] $fileName = $file.name
+			[string] $justName = $file.name.substring(0,$file.name.length-4)
+			[string] $dupName = $file.name.substring(0,$file.name.length-($preset.length+4)) + $preset + ".mp4"
+			[string] $outFile = $file.FullName.substring(0,$file.FullName.length-4) + $preset + ".mp4"
+			[string] $outFileName = $justName + $preset + ".mp4"
+			
+			[string] $av1Name = $file.name.substring(0,$file.name.length-7) + "AV1.mp4"
 
-		New-BalloonTip -BalloonTipIcon info -BalloontipText "$justname.mp4 finished" -BalloonTipTitle "Encoding completed"
+			
+			Write-Host "`n*******************************************************************************"
+			Write-Host "Processing:  $file" -foreground green
+			Write-Host "*******************************************************************************"
+
+			# $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+			Write-Output "`n$(Get-TimeStamp) *******************************************************************************" >> $logfile
+			Write-Output "$(Get-TimeStamp) Processing:  $file" >> $logfile
+			Write-Output "$(Get-TimeStamp) *******************************************************************************"  >> $logfile
+
+			if (Test-Path $outFile){
+				Write-Host "Output file already exist!!!" -ForegroundColor Red
+				Write-Output "$(Get-TimeStamp) Output file already exist!!!" >> $logfile
+				continue
+			}
+
+			if (($skipAV1 -eq "Y") -and ("$fileName" -eq "$av1Name")){
+				Write-Host "Input file is already AV1 and SKIP option was chosen!!!" -ForegroundColor Red
+				Write-Output "$(Get-TimeStamp) Input file is already AV1 and SKIP option was chosen!!!" >> $logfile
+				continue
+			}
+
+			if ("$fileName" -eq "$dupName"){
+				Write-Host "Input file is same as destination file!!!" -ForegroundColor Red
+				Write-Output "$(Get-TimeStamp) Input file is same as destination file!!!" >> $logfile
+				continue
+			}
+
+			Write-Host "Output File: $outFile" -foreground green
+			Write-Output "$(Get-TimeStamp) Output File: $outFile" >> $logfile
+
+
+			#Invoking Handbrake for file transcoding
+			[string] $handbrake = $handbrakeclishortpath + " -i `"$file`" -o `"$outFile`" --preset-import-file `"$presetFile`" -Z `"$preset`""
+			Invoke-Expression $handbrake
+			# $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+			
+			#Compare file sizes
+			$fileSize = (Get-Item $file).Length / 1MB
+			$outFileSize = (Get-Item $outFile).Length / 1MB
+			Write-Host "$fileSize -> $file" -foreground green
+			Write-Host "$outFileSize -> $outFile" -foreground green
+			Write-Output "$(Get-TimeStamp) input  $fileSize -> $file"  >> $logfile
+			Write-Output "$(Get-TimeStamp) output $outFileSize -> $outFile"  >> $logfile
+
+			if ($outFileSize -lt $fileSize) {
+				# $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+				Write-Host "Successful conversion" -foreground green
+				Write-Host "$file" -foreground green
+				Write-Output "$(Get-TimeStamp) SUCCESS +++" >> $logfile
+				Write-Output "$(Get-TimeStamp) -> $outFile" >> $logfile
+				if ($outFileSize -gt $fileSize/4) {
+					Remove-Item $file
+				}else{
+					Write-Output "$(Get-TimeStamp) WARNING: less than 20% of original" >> $logfile
+					Write-Output "$(Get-TimeStamp) WARNING: -> $outFile" >> $logfile
+					Write-Output "$(Get-TimeStamp) WARNING: -> Moving original to: $PSScriptRoot\$fileName"  >> $logfile
+					Write-Output "$(Get-TimeStamp) WARNING: less than 20% of original" >> $errorfile
+					Write-Output "$(Get-TimeStamp) WARNING: -> input  $fileSize -> $file"  >> $errorfile
+					Write-Output "$(Get-TimeStamp) WARNING: -> output $outFileSize -> $outFile"  >> $errorfile
+					Write-Output "$(Get-TimeStamp) WARNING: -> $outFile" >> $errorfile
+					Write-Output "$(Get-TimeStamp) WARNING: -> Moving original to: $PSScriptRoot\$fileName"  >> $errorfile
+					Move-Item -Path $file -Destination $PSScriptRoot\$fileName
+				}
+			}else{
+				# $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+				Write-Host "Conversion Failed" -foreground red
+				Write-Host "$file" -foreground red
+					Write-Output "$(Get-TimeStamp) ERROR: filesize greater than original or incomplete" >> $logfile
+					Write-Output "$(Get-TimeStamp) ERROR: -> $outFile" >> $logfile
+					Write-Output "$(Get-TimeStamp) ERROR: -> Moving converted file to: $PSScriptRoot\$fileName"  >> $logfile
+					Write-Output "$(Get-TimeStamp) ERROR: filesize greater than original or incomplete" >> $errorfile
+					Write-Output "$(Get-TimeStamp) ERROR: -> input  $fileSize -> $file"  >> $errorfile
+					Write-Output "$(Get-TimeStamp) ERROR: -> output $outFileSize -> $outFile"  >> $errorfile
+					Write-Output "$(Get-TimeStamp) ERROR: -> $outFile" >> $errorfile
+					Write-Output "$(Get-TimeStamp) ERROR: -> Moving converted file to: $PSScriptRoot\$outFileName"  >> $errorfile
+					Move-Item -Path $outFile -Destination $PSScriptRoot\$outFileName
+			}
+			
+			#Clear outfile so cleanup doesn't delete the last file
+			$outFile = $null
+			Write-Output "$(Get-TimeStamp) *******************************************************************************" >> $logfile
+
+			New-BalloonTip -BalloonTipIcon info -BalloontipText "$justname.mp4 finished" -BalloonTipTitle "Encoding completed"
+		}
+	}
+	finally {
+		#The Cleanup "Trap"
+		# This block runs NO MATTER WHAT (Ctrl+C, Error, or Completion)
+		if ($null -ne $outFile -and (Test-Path $outFile)) {
+			Write-Warning "Cleaning up partial file: $outFile"
+			Remove-Item $outFile -Force
+			popd
+		}
 	}
 }else{
 	# no files found to process
@@ -207,10 +238,10 @@ if ($files.length -ge 1){
     Write-Host "No files to process" -foreground yellow
     Write-Host "*******************************************************************************"
 
-    $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-    Write-Output "`n$timestamp*******************************************************************************" >> $logfile
-    Write-Output "$timestamp No files to process" >> $logfile
-    Write-Output "$timestamp*******************************************************************************" >> $logfile
+    # $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    Write-Output "`n$(Get-TimeStamp) *******************************************************************************" >> $logfile
+    Write-Output "$(Get-TimeStamp) No files to process" >> $logfile
+    Write-Output "$(Get-TimeStamp) *******************************************************************************" >> $logfile
 }
 
 New-BalloonTip -BalloonTipIcon info -BalloontipText "All files completed!" -BalloonTipTitle "Encoding completed"
