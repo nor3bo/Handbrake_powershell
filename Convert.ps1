@@ -60,6 +60,10 @@ function Get-TimeStamp {
      "[$((Get-Date).ToString('yyyy-MM-dd HH:mm:ss'))]"
 }
 
+function Get-DateStamp {
+     "$((Get-Date).ToString('yyyyMMdd'))"
+}
+
 
 ####################################################
 # Determine if Handbrake is installed and where it is
@@ -121,8 +125,7 @@ $runningDir = $PSScriptRoot
 # $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 
 $presetFile = $PSScriptRoot + "\presets.json"
-$logfile = $PSScriptRoot +"\log"+$preset+".log"
-$errorfile = $PSScriptRoot +"\error"+$preset+".log"
+
 $loop = 0
 $success = 0
 $skipped = 0
@@ -145,7 +148,7 @@ if ($limit -eq $null) {
 	$options = "-x lp=4"
 }
 
-
+$logfile = $PSScriptRoot +"\converter_$(Get-DateStamp).log"
 Write-Output "`n$(Get-TimeStamp) *******************************************************************************" >> $logfile
 Write-Output "$(Get-TimeStamp) *******************************************************************************"  >> $logfile
 Write-Output "$(Get-TimeStamp) Starting New Video File Conversion Run" >> $logfile
@@ -160,6 +163,10 @@ if ($files.length -ge 1){
 	try{
 		ForEach ($file in $files){
 			
+			$logfile = $PSScriptRoot +"\converter_$(Get-DateStamp).log"
+			$errorfile = $PSScriptRoot +"\error_$(Get-DateStamp).log"
+			$skipfile = $PSScriptRoot +"\skipped_$(Get-DateStamp).log"
+			
 			#Manual stop check (like your stop.y)
 			if (Test-Path "$runningDir/stop.y") {
 				Write-Host "Stop trigger detected." -foreground yellow
@@ -169,14 +176,47 @@ if ($files.length -ge 1){
 				break
 			}
 			
-			[string] $fileName = $file.name
-			[string] $justName = $file.name.substring(0,$file.name.length-4)
-			[string] $dupName = $file.name.substring(0,$file.name.length-($preset.length+4)) + $preset + ".mp4"
-			[string] $outFile = $file.FullName.substring(0,$file.FullName.length-4) + $preset + ".mp4"
-			[string] $outFileName = $justName + $preset + ".mp4"
-			
-			[string] $av1Name = $file.name.substring(0,$file.name.length-7) + "AV1.mp4"
 			$loop++
+			try{
+				[string] $fileName = $file.name
+				[string] $justName = $file.name.substring(0,$file.name.length-4)
+				[string] $outFile = $file.FullName.substring(0,$file.FullName.length-4) + $preset + ".mp4"
+				[string] $outFileName = $justName + $preset + ".mp4"
+			} catch {
+				Write-Output "$(Get-TimeStamp) *******************************************************************************"  >> $errorfile
+				Write-Output "$(Get-TimeStamp) Processing Loop $loop :  $fileName" >> $errorfile
+				Write-Output "$(Get-TimeStamp) *******************************************************************************"  >> $errorfile
+				Write-Output "$(Get-TimeStamp) Exception with file name substrings" >> $errorfile
+				Write-Output "$(Get-TimeStamp) Error occurred: $($_.Exception.Message)"  >> $errorfile
+				$failed++
+				continue
+			}
+			
+			try{
+				[string] $dupName = $file.name.substring(0,$file.name.length-($preset.length+4)) + $preset + ".mp4"
+			} catch {
+				Write-Output "$(Get-TimeStamp) *******************************************************************************"  >> $errorfile
+				Write-Output "$(Get-TimeStamp) Processing Loop $loop :  $fileName" >> $errorfile
+				Write-Output "$(Get-TimeStamp) *******************************************************************************"  >> $errorfile
+				Write-Output "$(Get-TimeStamp) Warning with dupname substrings" >> $errorfile
+				Write-Output "$(Get-TimeStamp) Error occurred: $($_.Exception.Message)"  >> $errorfile
+				Write-Output "$(Get-TimeStamp) Warning: $fileName"  >> $logfile
+				Write-Output "$(Get-TimeStamp) Warning: Dupfile name too short, using target filename"  >> $logfile
+				$dupName = $outFileName
+			}
+			
+			try{
+				[string] $av1Name = $file.name.substring(0,$file.name.length-7) + "AV1.mp4"
+				$lastSeven = $filename.Substring($filename.Length - 7)
+			} catch {
+				Write-Output "$(Get-TimeStamp) *******************************************************************************"  >> $errorfile
+				Write-Output "$(Get-TimeStamp) Processing Loop $loop :  $fileName" >> $errorfile
+				Write-Output "$(Get-TimeStamp) *******************************************************************************"  >> $errorfile
+				Write-Output "$(Get-TimeStamp) Exception with file SubString" >> $errorfile
+				Write-Output "$(Get-TimeStamp) Error occurred: $($_.Exception.Message)"  >> $errorfile
+				$failed++
+				continue
+			}
 
 			Write-Host "`*******************************************************************************"
 			Write-Host "Processing Loop $loop :  $fileName" -foreground green
@@ -187,27 +227,32 @@ if ($files.length -ge 1){
 			# $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 			if (Test-Path $outFile){
 				Write-Host "Output file already exist!!!" -ForegroundColor Red
-				Write-Output "$(Get-TimeStamp) *******************************************************************************"  >> $logfile
-				Write-Output "$(Get-TimeStamp) Output file already exist!!!" >> $logfile
-				Write-Output "$(Get-TimeStamp) *******************************************************************************"  >> $logfile
+				Write-Output "$(Get-TimeStamp) Skipping File ($loop):  $fileName" >> $skipfile
+				#Write-Output "$(Get-TimeStamp) Output file already exist!!!" >> $skipfile
+				$skipped++
+				continue
+			}
+
+			if (($skipAV1 -eq "Y") -and ("$lastSeven" -eq "AV1.mp4")){
+				Write-Host "Input file is already AV1 and SKIP option was chosen!!!" -ForegroundColor Red
+				Write-Output "$(Get-TimeStamp) Skipping File ($loop):  $fileName" >> $skipfile
+				#Write-Output "$(Get-TimeStamp) Input file is already AV1 and SKIP option was chosen!!!" >> $skipfile
 				$skipped++
 				continue
 			}
 
 			if (($skipAV1 -eq "Y") -and ("$fileName" -eq "$av1Name")){
-				Write-Host "Input file is already AV1 and SKIP option was chosen!!!" -ForegroundColor Red
-				#Write-Output "$(Get-TimeStamp) *******************************************************************************"  >> $logfile
-				#Write-Output "$(Get-TimeStamp) Input file is already AV1 and SKIP option was chosen!!!" >> $logfile
-				#Write-Output "$(Get-TimeStamp) *******************************************************************************"  >> $logfile
+				Write-Host "Input file is already similar AV1 and SKIP option was chosen!!!" -ForegroundColor Red
+				Write-Output "$(Get-TimeStamp) Skipping File ($loop):  $fileName" >> $skipfile
+				#Write-Output "$(Get-TimeStamp) Input file is already AV1 and SKIP option was chosen!!!" >> $skipfile
 				$skipped++
 				continue
 			}
 
 			if ("$fileName" -eq "$dupName"){
 				Write-Host "Input file is same as destination file!!!" -ForegroundColor Red
-				Write-Output "$(Get-TimeStamp) *******************************************************************************"  >> $logfile
-				Write-Output "$(Get-TimeStamp) Input file is same as destination file!!!" >> $logfile
-				Write-Output "$(Get-TimeStamp) *******************************************************************************"  >> $logfile
+				Write-Output "$(Get-TimeStamp) Skipping File ($loop):  $fileName" >> $skipfile
+				#Write-Output "$(Get-TimeStamp) Input file is same as destination file!!!" >> $skipfile
 				$skipped++
 				continue
 			}
@@ -224,7 +269,10 @@ if ($files.length -ge 1){
 			[string] $handbrake = $handbrakeclishortpath + " -i `"$file`" -o `"$outFile`" --preset-import-file `"$presetFile`" -Z `"$preset`" $options"
 			#Write-Host "Invoking $handbrake"
 			Invoke-Expression $handbrake
-			# $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+			
+			#update datestamp post conversion
+			$logfile = $PSScriptRoot +"\converter_$(Get-DateStamp).log"
+			$errorfile = $PSScriptRoot +"\error_$(Get-DateStamp).log"
 			
 			#Compare file sizes
 			$fileSize = (Get-Item $file).Length / 1MB
@@ -260,21 +308,23 @@ if ($files.length -ge 1){
 			}else{
 				# $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 				$failed++
+				$logfile = $PSScriptRoot +"\converter_$(Get-DateStamp).log"
+				$errorfile = $PSScriptRoot +"\error_$(Get-DateStamp).log"
 				Write-Host "Conversion Failed" -foreground red
 				Write-Host "$file" -foreground red
-					Write-Output "$(Get-TimeStamp) ERROR: filesize greater than original or incomplete" >> $logfile
-					Write-Output "$(Get-TimeStamp) ERROR: -> $outFile" >> $logfile
-					Write-Output "$(Get-TimeStamp) ERROR: -> Moving converted file to: $PSScriptRoot\$fileName"  >> $logfile
-					Write-Output "$(Get-TimeStamp) *******************************************************************************"  >> $errorfile
-					Write-Output "$(Get-TimeStamp) Processing Loop $loop :  $fileName" >> $errorfile
-					Write-Output "$(Get-TimeStamp) *******************************************************************************"  >> $errorfile
-					Write-Output "$(Get-TimeStamp) ERROR: filesize greater than original or incomplete" >> $errorfile
-					Write-Output "$(Get-TimeStamp) ERROR: -> input  $fileSize -> $file"  >> $errorfile
-					Write-Output "$(Get-TimeStamp) ERROR: -> output $outFileSize -> $outFile"  >> $errorfile
-					Write-Output "$(Get-TimeStamp) ERROR: -> $outFile" >> $errorfile
-					Write-Output "$(Get-TimeStamp) ERROR: -> Moving converted file to: $PSScriptRoot\$outFileName"  >> $errorfile
-					Write-Output "$(Get-TimeStamp) *******************************************************************************"  >> $errorfile
-					Move-Item -Path $outFile -Destination $PSScriptRoot\$outFileName
+				Write-Output "$(Get-TimeStamp) ERROR: filesize greater than original or incomplete" >> $logfile
+				Write-Output "$(Get-TimeStamp) ERROR: -> $outFile" >> $logfile
+				Write-Output "$(Get-TimeStamp) ERROR: -> Moving converted file to: $PSScriptRoot\$fileName"  >> $logfile
+				Write-Output "$(Get-TimeStamp) *******************************************************************************"  >> $errorfile
+				Write-Output "$(Get-TimeStamp) Processing Loop $loop :  $fileName" >> $errorfile
+				Write-Output "$(Get-TimeStamp) *******************************************************************************"  >> $errorfile
+				Write-Output "$(Get-TimeStamp) ERROR: filesize greater than original or incomplete" >> $errorfile
+				Write-Output "$(Get-TimeStamp) ERROR: -> input  $fileSize -> $file"  >> $errorfile
+				Write-Output "$(Get-TimeStamp) ERROR: -> output $outFileSize -> $outFile"  >> $errorfile
+				Write-Output "$(Get-TimeStamp) ERROR: -> $outFile" >> $errorfile
+				Write-Output "$(Get-TimeStamp) ERROR: -> Moving converted file to: $PSScriptRoot\$outFileName"  >> $errorfile
+				Write-Output "$(Get-TimeStamp) *******************************************************************************"  >> $errorfile
+				Move-Item -Path $outFile -Destination $PSScriptRoot\$outFileName
 			}
 			
 			#Clear outfile so cleanup doesn't delete the last file
@@ -287,6 +337,8 @@ if ($files.length -ge 1){
 		#The Cleanup "Trap"
 		# This block runs NO MATTER WHAT (Ctrl+C, Error, or Completion)
 		if ($incomplete -and (Test-Path $outFile)) {
+			$logfile = $PSScriptRoot +"\converter_$(Get-DateStamp).log"
+			$errorfile = $PSScriptRoot +"\error_$(Get-DateStamp).log"
 			Write-Warning "Cleaning up partial file: $outFile"
 			Write-Output "$(Get-TimeStamp) *******************************************************************************" >> $logfile
 			Write-Output "$(Get-TimeStamp) ERROR: Incomplete" >> $errorfile
@@ -305,6 +357,7 @@ if ($files.length -ge 1){
     Write-Host "*******************************************************************************"
 
     # $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+	$logfile = $PSScriptRoot +"\converter_$(Get-DateStamp).log"
     Write-Output "`n$(Get-TimeStamp) *******************************************************************************" >> $logfile
     Write-Output "$(Get-TimeStamp) No files to process" >> $logfile
     Write-Output "$(Get-TimeStamp) *******************************************************************************" >> $logfile
@@ -312,8 +365,9 @@ if ($files.length -ge 1){
 
 New-BalloonTip -BalloonTipIcon info -BalloontipText "All files completed!" -BalloonTipTitle "Encoding completed"
 # Speak -phrase "Encoding finished."
-
+$logfile = $PSScriptRoot +"\converter_$(Get-DateStamp).log"
 Write-Output "$(Get-TimeStamp) *******************************************************************************" >> $logfile
+Write-Output "$(Get-TimeStamp) Process Directory: $dir" >> $logfile
 Write-Output "$(Get-TimeStamp) Total Files: $loop" >> $logfile
 Write-Output "$(Get-TimeStamp) Success: $success" >> $logfile
 Write-Output "$(Get-TimeStamp) Skipped: $skipped" >> $logfile

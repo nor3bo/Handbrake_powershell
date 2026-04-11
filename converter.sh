@@ -35,11 +35,11 @@ if [[ -z "$INPUT_DIR" ]]; then
 fi
 
 case "$PRESET" in
-    "_full_1080p_AV1"|"_1080p_AV1"|"38_1080p_AV1"|"_720p_AV1"|"_42_720p_AV1")
+    "_full_1080p_AV1"|"_1080p_AV1"|"_38_1080p_AV1"|"_720p_AV1"|"_42_720p_AV1")
         echo "preset valid: $PRESET"
         ;;
     *)   
-        echo "Error: Preset required (e.g. _full_1080p_AV1,_1080p_AV1, 38_1080p_AV1, _720p_AV1, _42_720p_AV1)"
+        echo "Error: Preset required (e.g. _full_1080p_AV1,_1080p_AV1, _38_1080p_AV1, _720p_AV1, _42_720p_AV1)"
         exit 1
         ;;
 esac
@@ -127,14 +127,12 @@ while IFS= read -r file; do
         ((count_skipped++))
         continue
     fi
-
+    > nohup.out
     echo "$(timestamp) ***************************************************************" >> "$LOG_FILE"
     echo "$(timestamp) Processing Loop $count_loop: $filename" >> "$LOG_FILE"
     echo "$(timestamp) ***************************************************************" >> "$LOG_FILE"
     echo "$(timestamp) file:     $file" >> "$LOG_FILE"
     echo "$(timestamp) outfile:  $outfile" >> "$LOG_FILE"
-    echo "$(timestamp) filename: $filename" >> "$LOG_FILE"
-    echo "$(timestamp) outname:  $outname" >> "$LOG_FILE"
 
     # Run HandBrakeCLI
     HandBrakeCLI -i "$file" -o "$outfile" --preset-import-file "$PRESET_FILE"  -Z "$PRESET" -x "$OPTIONS" < /dev/null
@@ -156,6 +154,8 @@ while IFS= read -r file; do
             else
                 echo "$(timestamp) WARNING: New file is smaller than 25% of original." >> "$LOG_FILE"
                 echo "$(timestamp) WARNING: Moving original to root folder" >> "$LOG_FILE"
+                echo "$(timestamp) *****************************************************" >> "$ERROR_LOG"
+                echo "$(timestamp) WARNING: file: $filename" >> "$ERROR_LOG"
                 echo "$(timestamp) WARNING: New file is smaller than 25% of original." >> "$ERROR_LOG"
                 echo "$(timestamp) WARNING: Moving original to root folder" >> "$ERROR_LOG"
                 mv "$file" "./$filename"
@@ -164,6 +164,8 @@ while IFS= read -r file; do
         else
             echo "$(timestamp) WARNING: New file is LARGER ($new_size vs $old_size)." >> "$LOG_FILE"
             echo "$(timestamp) WARNING: Moving new file to root folder" >> "$LOG_FILE"
+                echo "$(timestamp) *****************************************************" >> "$ERROR_LOG"
+                echo "$(timestamp) WARNING: file: $filename" >> "$ERROR_LOG"
             echo "$(timestamp) WARNING: New file is LARGER ($new_size vs $old_size)." >> "$ERROR_LOG"
             echo "$(timestamp) WARNING: Moving new file to root folder" >> "$ERROR_LOG"
             mv "$outfile" "./$outname"

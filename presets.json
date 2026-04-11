@@ -212,7 +212,7 @@
       "VideoLevel": "auto",
       "VideoOptionExtra": "",
       "VideoQualityType": 2,
-      "VideoQualitySlider": 34,
+      "VideoQualitySlider": 32,
       "VideoMultiPass": true,
       "VideoTurboMultiPass": true,
       "VideoPasshtruHDRDynamicMetadata": "all",
