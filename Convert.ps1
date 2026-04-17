@@ -64,6 +64,17 @@ function Get-DateStamp {
      "$((Get-Date).ToString('yyyyMMdd'))"
 }
 
+####################################################
+# Read the .env file and load each line as an environment variable
+Get-Content .env | Foreach-Object {
+    $name, $value = $_.Split('=', 2)
+    if ($name -and $value) {
+        Set-Content -Path "env:\$($name.Trim())" -Value ($value.Trim())
+    }
+}
+
+
+
 
 ####################################################
 # Determine if Handbrake is installed and where it is
@@ -111,8 +122,6 @@ switch ($preset) {
 
 
 
-
-
 pushd
 
 Set-Location $dir
@@ -132,8 +141,9 @@ $skipped = 0
 $failed = 0
 $options = ""
 
-if ($limit -eq $null) {
-	$options = ""
+if (($limit -eq $null -or $limit -eq "") -and $env:LIMIT_PROCESSORS -ne $null) {
+	$options = "-x lp=$env:LIMIT_PROCESSORS"
+	Write-Host  "Setting LIMIT_PROCESSORS: $env:LIMIT_PROCESSORS" -ForegroundColor Green
 }  elseif ($limit -eq "6") {
 	$options = "-x lp=6"
 }  elseif ($limit -eq "5") {
@@ -146,15 +156,26 @@ if ($limit -eq $null) {
 	$options = "-x lp=2"
 } else {
 	$options = "-x lp=4"
+	Write-Host  "Setting default LIMIT_PROCESSORS: $limit" -ForegroundColor Green
+	Write-Host  "LIMIT_PROCESSORS: $env:LIMIT_PROCESSORS" -ForegroundColor Green
+	Write-Host  "limit: $limit" -ForegroundColor Green
 }
+
+$filesizeFloor = 800
+if ($env:FILESIZE_FLOOR -ne $null) {
+	$filesizeFloor = $env:FILESIZE_FLOOR
+	Write-Host  "Setting file size floor: $filesizeFloor" -ForegroundColor Green
+}
+
 
 $logfile = $PSScriptRoot +"\converter_$(Get-DateStamp).log"
 Write-Output "`n$(Get-TimeStamp) *******************************************************************************" >> $logfile
 Write-Output "$(Get-TimeStamp) *******************************************************************************"  >> $logfile
 Write-Output "$(Get-TimeStamp) Starting New Video File Conversion Run" >> $logfile
 Write-Output "$(Get-TimeStamp) Process Directory: $dir" >> $logfile
-Write-Output "$(Get-TimeStamp) Preset: $preset" >> $logfile
-Write-Output "$(Get-TimeStamp) Options: $options" >> $logfile
+Write-Output "$(Get-TimeStamp) Preset:     $preset" >> $logfile
+Write-Output "$(Get-TimeStamp) Options:    $options" >> $logfile
+Write-Output "$(Get-TimeStamp) File Floor: $filesizeFloor" >> $logfile
 Write-Output "$(Get-TimeStamp) Use STOP TRIGGER to end run: `"stop.y`" " >> $logfile
 Write-Output "$(Get-TimeStamp) *******************************************************************************"  >> $logfile
 
@@ -166,6 +187,14 @@ if ($files.length -ge 1){
 			$logfile = $PSScriptRoot +"\converter_$(Get-DateStamp).log"
 			$errorfile = $PSScriptRoot +"\error_$(Get-DateStamp).log"
 			$skipfile = $PSScriptRoot +"\skipped_$(Get-DateStamp).log"
+			
+			$loopPreset = $preset
+			if ((($preset -eq "_1080p_AV1") -or ($preset -eq "_full_1080p_AV1")) -and ((Get-Item $file).Length / 1MB) -lt $filesizeFloor) {
+				$loopPreset = "_720p_AV1"
+				Write-Host  "Under Filesize Floor" -ForegroundColor Blue
+				Write-Host  "Setting Preset to _720p_AV1" -ForegroundColor Blue
+			}
+
 			
 			#Manual stop check (like your stop.y)
 			if (Test-Path "$runningDir/stop.y") {
@@ -180,8 +209,8 @@ if ($files.length -ge 1){
 			try{
 				[string] $fileName = $file.name
 				[string] $justName = $file.name.substring(0,$file.name.length-4)
-				[string] $outFile = $file.FullName.substring(0,$file.FullName.length-4) + $preset + ".mp4"
-				[string] $outFileName = $justName + $preset + ".mp4"
+				[string] $outFile = $file.FullName.substring(0,$file.FullName.length-4) + $loopPreset + ".mp4"
+				[string] $outFileName = $justName + $loopPreset + ".mp4"
 			} catch {
 				Write-Output "$(Get-TimeStamp) *******************************************************************************"  >> $errorfile
 				Write-Output "$(Get-TimeStamp) Processing Loop $loop :  $fileName" >> $errorfile
@@ -193,7 +222,7 @@ if ($files.length -ge 1){
 			}
 			
 			try{
-				[string] $dupName = $file.name.substring(0,$file.name.length-($preset.length+4)) + $preset + ".mp4"
+				[string] $dupName = $file.name.substring(0,$file.name.length-($loopPreset.length+4)) + $loopPreset + ".mp4"
 			} catch {
 				Write-Output "$(Get-TimeStamp) *******************************************************************************"  >> $errorfile
 				Write-Output "$(Get-TimeStamp) Processing Loop $loop :  $fileName" >> $errorfile
@@ -227,7 +256,7 @@ if ($files.length -ge 1){
 			# $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
 			if (Test-Path $outFile){
 				Write-Host "Output file already exist!!!" -ForegroundColor Red
-				Write-Output "$(Get-TimeStamp) Skipping File ($loop):  $fileName" >> $skipfile
+				Write-Output "$(Get-TimeStamp) Skipping File - EXT ($loop):  $fileName" >> $skipfile
 				#Write-Output "$(Get-TimeStamp) Output file already exist!!!" >> $skipfile
 				$skipped++
 				continue
@@ -235,7 +264,7 @@ if ($files.length -ge 1){
 
 			if (($skipAV1 -eq "Y") -and ("$lastSeven" -eq "AV1.mp4")){
 				Write-Host "Input file is already AV1 and SKIP option was chosen!!!" -ForegroundColor Red
-				Write-Output "$(Get-TimeStamp) Skipping File ($loop):  $fileName" >> $skipfile
+				Write-Output "$(Get-TimeStamp) Skipping File - AV1 ($loop):  $fileName" >> $skipfile
 				#Write-Output "$(Get-TimeStamp) Input file is already AV1 and SKIP option was chosen!!!" >> $skipfile
 				$skipped++
 				continue
@@ -243,7 +272,7 @@ if ($files.length -ge 1){
 
 			if (($skipAV1 -eq "Y") -and ("$fileName" -eq "$av1Name")){
 				Write-Host "Input file is already similar AV1 and SKIP option was chosen!!!" -ForegroundColor Red
-				Write-Output "$(Get-TimeStamp) Skipping File ($loop):  $fileName" >> $skipfile
+				Write-Output "$(Get-TimeStamp) Skipping File - COD ($loop):  $fileName" >> $skipfile
 				#Write-Output "$(Get-TimeStamp) Input file is already AV1 and SKIP option was chosen!!!" >> $skipfile
 				$skipped++
 				continue
@@ -251,7 +280,7 @@ if ($files.length -ge 1){
 
 			if ("$fileName" -eq "$dupName"){
 				Write-Host "Input file is same as destination file!!!" -ForegroundColor Red
-				Write-Output "$(Get-TimeStamp) Skipping File ($loop):  $fileName" >> $skipfile
+				Write-Output "$(Get-TimeStamp) Skipping File - DUP ($loop):  $fileName" >> $skipfile
 				#Write-Output "$(Get-TimeStamp) Input file is same as destination file!!!" >> $skipfile
 				$skipped++
 				continue
@@ -260,13 +289,14 @@ if ($files.length -ge 1){
 			Write-Output "$(Get-TimeStamp) *******************************************************************************" >> $logfile
 			Write-Output "$(Get-TimeStamp) Processing Loop $loop :  $fileName" >> $logfile
 			Write-Output "$(Get-TimeStamp) *******************************************************************************"  >> $logfile
+			Write-Output "$(Get-TimeStamp) Loop Preset: $loopPreset" >> $logfile
 			Write-Output "$(Get-TimeStamp) Input File:  $file" >> $logfile
 			Write-Output "$(Get-TimeStamp) Output File: $outFile" >> $logfile
 
 
 			#Invoking Handbrake for file transcoding
 			$incomplete = $true
-			[string] $handbrake = $handbrakeclishortpath + " -i `"$file`" -o `"$outFile`" --preset-import-file `"$presetFile`" -Z `"$preset`" $options"
+			[string] $handbrake = $handbrakeclishortpath + " -i `"$file`" -o `"$outFile`" --preset-import-file `"$presetFile`" -Z `"$loopPreset`" $options"
 			#Write-Host "Invoking $handbrake"
 			Invoke-Expression $handbrake
 			
@@ -330,7 +360,7 @@ if ($files.length -ge 1){
 			#Clear outfile so cleanup doesn't delete the last file
 			$incomplete = $false
 
-			New-BalloonTip -BalloonTipIcon info -BalloontipText "$justname.mp4 finished" -BalloonTipTitle "Encoding completed"
+			#New-BalloonTip -BalloonTipIcon info -BalloontipText "$justname.mp4 finished" -BalloonTipTitle "Encoding completed"
 		}
 	}
 	finally {
@@ -363,7 +393,7 @@ if ($files.length -ge 1){
     Write-Output "$(Get-TimeStamp) *******************************************************************************" >> $logfile
 }
 
-New-BalloonTip -BalloonTipIcon info -BalloontipText "All files completed!" -BalloonTipTitle "Encoding completed"
+#New-BalloonTip -BalloonTipIcon info -BalloontipText "All files completed!" -BalloonTipTitle "Encoding completed"
 # Speak -phrase "Encoding finished."
 $logfile = $PSScriptRoot +"\converter_$(Get-DateStamp).log"
 Write-Output "$(Get-TimeStamp) *******************************************************************************" >> $logfile
